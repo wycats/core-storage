@@ -1,0 +1,28 @@
+{
+  "name": "core-storage-meta",
+  "workspaces": [
+    "packages/*"
+  ],
+  "version": "0.5.0",
+  "private": true,
+  "main": "index.js",
+  "author": "Yehuda Katz <wycats@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --build",
+    "pretest": "yarn build",
+    "test": "qunit dist/tests/**/*-test.js"
+  },
+  "resolutions": {
+    "typescript": "3.2.4",
+    "@glimmer/reference": "link:../glimmer-vm/dist/@glimmer/reference",
+    "@glimmer/util": "link:../glimmer-vm/dist/@glimmer/util"
+  },
+  "dependencies": {
+    "@glimmer/reference": "^0.38.0"
+  },
+  "devDependencies": {
+    "qunit": "^2.9.1",
+    "@types/qunit": "^2.5.4"
+  }
+}

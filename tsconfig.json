@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "target": "es2018",
+    "module": "commonjs",
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "tests"
+    },
+    {
+      "path": "packages/core-storage"
+    }
+  ],
+  "compileOnSave": true
+}

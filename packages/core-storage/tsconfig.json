@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.shared.json",
+
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "../../dist/packages/core-storage"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
