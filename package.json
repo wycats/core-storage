@@ -10,7 +10,6 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc --build",
-    "pretest": "yarn build",
     "test": "qunit dist/tests/**/*-test.js"
   },
   "resolutions": {
@@ -19,7 +18,8 @@
     "@glimmer/util": "link:../glimmer-vm/dist/@glimmer/util"
   },
   "dependencies": {
-    "@glimmer/reference": "^0.38.0"
+    "@glimmer/reference": "^0.38.0",
+    "ts-std": "^0.7.0"
   },
   "devDependencies": {
     "qunit": "^2.9.1",

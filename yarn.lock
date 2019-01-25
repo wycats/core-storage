@@ -94,6 +94,11 @@ resolve@1.5.0:
   dependencies:
     path-parse "^1.0.5"
 
+ts-std@^0.7.0:
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/ts-std/-/ts-std-0.7.0.tgz#fd1284696bed7f19694a0f445aeda2f182142567"
+  integrity sha512-YKn6ogWEqe4oEL7/WncrFrU7TUb+RWrBxkBfQ7jDVMdbeJVpapIIiahFJJXcdUOZqo42pR7Ok1V3Wt5KeUqBrA==
+
 typescript@*, typescript@3.2.4:
   version "3.2.4"
   resolved "https://registry.yarnpkg.com/typescript/-/typescript-3.2.4.tgz#c585cb952912263d915b462726ce244ba510ef3d"

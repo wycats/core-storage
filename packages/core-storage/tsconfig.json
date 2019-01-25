@@ -3,8 +3,9 @@
 
   "compilerOptions": {
     "composite": true,
-    "outDir": "../../dist/packages/core-storage"
+    "outDir": "dist",
+    "noEmitOnError": false
   },
-  "include": ["**/*.ts"],
+  "include": ["index.ts", "lib/**/*.ts"],
   "exclude": ["node_modules"]
 }

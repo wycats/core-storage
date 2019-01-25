@@ -3,8 +3,14 @@
     "experimentalDecorators": true,
     "target": "es2018",
     "module": "commonjs",
-    "outDir": "dist"
+    "outDir": "dist",
+    "baseUrl": ".",
+    "skipLibCheck": true,
+    "paths": {
+      "core-storage": ["packages/core-storage"]
+    }
   },
+  "exclude": ["node_modules"],
   "references": [
     {
       "path": "tests"
