@@ -55,7 +55,10 @@ export class SingletonTests {
     let tomNameTag = store.propertyTag(tomId, "name");
 
     let tom = store.get(tomId);
+    let length = store.derived(tomId, "length");
+
     assert.equal(tom.name, "Tom Dale");
+    assert.equal(length(), "Tom Dale".length);
 
     // let tomVersion = tomTag.value();
     let tomNameVersion = tomNameTag.value();
@@ -72,7 +75,6 @@ export class SingletonTests {
       "New checkouts see the updates"
     );
 
-    // let derived = store.derived(tomId, "length");
-    // assert.equal(derived(), "Tom Dale".length);
+    assert.equal(length(), "Thomas Dale".length);
   }
 }

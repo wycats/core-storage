@@ -270,9 +270,8 @@ export class Store<S extends ModelSchemas> {
   ): DerivedFunction<S[K]["derived"][D]> {
     let index = INDEX.get(this);
     let derived = index.derived(id.type, name);
-    let data = this.get(id);
 
-    return (() => derived(data)) as any;
+    return (() => derived(this.get(id))) as any;
   }
 
   entityTag<K extends keyof S>(id: QualifiedId<S, K>): Tag {
