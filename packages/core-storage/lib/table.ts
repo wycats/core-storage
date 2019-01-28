@@ -1,4 +1,4 @@
-import { ModelSchemas } from "./store";
+import { ModelSchemas, EntityId, EntityName } from "./database";
 
 export interface Table<R extends Row = Row> {
   new (...args: any[]): R;
@@ -13,9 +13,12 @@ export const enum Key {
   UUID = "UUID"
 }
 
-export interface QualifiedId<S extends ModelSchemas, K extends keyof S> {
+export interface EntityReference<
+  S extends ModelSchemas,
+  K extends EntityName<S>
+> {
   type: K;
-  id: S[K]["id"];
+  id: EntityId<S, K>;
 }
 
 export type Id<I extends string = string> =
