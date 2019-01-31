@@ -1,6 +1,6 @@
 import { module, test } from "./support";
 import {
-  Database,
+  DatabaseImpl,
   EntityReference,
   DatabaseSchema,
   Id,
@@ -26,7 +26,7 @@ interface SimplePerson {
 
 @module
 export class SimpleSingletonTests {
-  private store = new Database<SimpleSchema>();
+  private store = new DatabaseImpl<SimpleSchema>();
 
   constructor() {
     this.store.register("person", {
@@ -145,7 +145,7 @@ interface AtomicArticle {
 
 @module
 export class AtomicSingletonTests {
-  private store = new Database<AtomicSchema>();
+  private store = new DatabaseImpl<AtomicSchema>();
   private personId: EntityReference<"person">;
   private articleId: EntityReference<"article">;
 

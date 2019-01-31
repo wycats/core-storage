@@ -1,6 +1,6 @@
 import { module, test } from "./support";
 import {
-  Database,
+  DatabaseImpl,
   Id,
   DatabaseSchema,
   KeyType,
@@ -28,7 +28,7 @@ interface SimplePerson {
 
 @module
 export class SimpleSingletonTests {
-  private store = new Database<SimpleSchema>();
+  private store = new DatabaseImpl<SimpleSchema>();
 
   constructor() {
     this.store.register("person", {
@@ -254,9 +254,9 @@ interface AtomicArticle {
 
 @module
 export class AtomicTests {
-  private database = new Database<AtomicSchema>({
+  private database = new DatabaseImpl<AtomicSchema>({
     articles(
-      db: Database<AtomicSchema>,
+      db: DatabaseImpl<AtomicSchema>,
       personKey: EntityReference<"person">
     ): EntityReference<"article">[] {
       let articles = db.all("article");
@@ -362,6 +362,10 @@ export class AtomicTests {
     database.patch(this.articleId, { author: null });
     assert.equal(articlesTag.validate(articlesRevision), false);
     assert.deepEqual(articles.value(), [helloId]);
+
+    database.delete(helloId);
+    assert.equal(articlesTag.validate(articlesRevision), false);
+    assert.deepEqual(articles.value(), []);
   }
 }
 

@@ -1,4 +1,4 @@
-import { Option, Dict, dict, entries, keys } from "ts-std";
+import { Option, Dict, dict, entries } from "ts-std";
 import {
   Tag,
   DirtyableTag,
@@ -24,11 +24,18 @@ import {
   DerivedReturn,
   PropertiesFor
 } from "./schema";
+import { TypeIndexRecord } from "./type-index";
 
-interface Registration<S extends DatabaseSchema, K extends EntityName<S>> {
+export interface Registration<
+  S extends DatabaseSchema,
+  K extends EntityName<S>
+> {
   key: KeyType;
   derived?: {
-    [key: string]: (data: Properties<S, K>, database: Database<S>) => unknown;
+    [key: string]: (
+      data: Properties<S, K>,
+      database: DatabaseImpl<S>
+    ) => unknown;
   };
 }
 
@@ -37,7 +44,7 @@ class ReadonlyPrivateMap {
 
   constructor(private desc: string, private type: string) {}
 
-  init<S extends DatabaseSchema>(key: Database<S>, value: Index<S>): void {
+  init<S extends DatabaseSchema>(key: DatabaseImpl<S>, value: Index<S>): void {
     if (this.map.has(key)) {
       throw new Error("Can only initialize private state once");
     }
@@ -45,7 +52,7 @@ class ReadonlyPrivateMap {
     this.map.set(key, value);
   }
 
-  get<S extends DatabaseSchema>(key: Database<S>): Index<S> {
+  get<S extends DatabaseSchema>(key: DatabaseImpl<S>): Index<S> {
     if (!this.map.has(key)) {
       throw new Error(`#${this.desc} is only available on ${this.type}`);
     }
@@ -56,198 +63,118 @@ class ReadonlyPrivateMap {
 
 const INDEX = new ReadonlyPrivateMap("index", "Store");
 
-type DerivedTags<K extends EntityName<DatabaseSchema>> = {
-  [P in keyof Derived<SchemaForEntityName<K>, K>]?: TagWrapper<
-    UpdatableDirtyableTag
-  >
-};
-
 type QueryTags<S extends DatabaseSchema> = {
   [P in keyof QueriesFor<S>]?: TagWrapper<UpdatableDirtyableTag>
 };
 
-class EntityTags<S extends DatabaseSchema, K extends EntityName<S>> {
-  private propertyTags: Map<
-    keyof Properties<S, K>,
-    TagWrapper<DirtyableTag>
-  > = new Map();
+export function newId<S extends DatabaseSchema, K extends EntityName<S>>(
+  type: K,
+  registration: Registration<S, K>
+): EntityId<S, K> {
+  switch (registration.key) {
+    case KeyType.Singleton:
+      return { keyType: KeyType.Singleton, value: type } as EntityId<S, K>;
 
-  private entityTag = DirtyableTag.create();
+    case KeyType.UUID:
+      return { keyType: KeyType.UUID, value: uuid.default() };
 
-  constructor(properties: Properties<S, K>) {
-    let { propertyTags: map } = this;
-
-    keys(properties).forEach(key => {
-      map.set(key, DirtyableTag.create());
-    });
-  }
-
-  consume(): void {
-    consume(this.entityTag);
-  }
-
-  consumeProperty(key: keyof Properties<S, K>): void {
-    consume(this.propertyTags.get(key)!);
-  }
-
-  has(key: keyof Properties<S, K>): boolean {
-    return this.propertyTags.has(key);
-  }
-
-  get(key: keyof Properties<S, K>): TagWrapper<DirtyableTag> {
-    return this.propertyTags.get(key)!;
-  }
-
-  entity(): TagWrapper<DirtyableTag> {
-    return this.entityTag;
-  }
-
-  dirty(): void {
-    for (let value of this.propertyTags.values()) {
-      value.inner.dirty();
-    }
-
-    this.entityTag.inner.dirty();
+    default:
+      throw new Error(
+        `Unimplemented keyFor for ${
+          registration.key
+        } key type (${JSON.stringify(registration)})`
+      );
   }
 }
 
-class TypeIndex<S extends DatabaseSchema, K extends EntityName<S>> {
-  readonly properties: Dict<PropertiesFor<K>> = {};
-  readonly entityTags: Dict<EntityTags<S, K>> = {};
-  // readonly entityTags: Dict<TagWrapper<DirtyableTag>> = {};
-  readonly derivedTags: Dict<DerivedTags<K>> = {};
-  readonly allTag: TagWrapper<DirtyableTag> = DirtyableTag.create();
+export function idFor<S extends DatabaseSchema, K extends EntityName<S>>(
+  registration: Registration<S, K>,
+  key: string
+): EntityId<S, K> {
+  switch (registration.key) {
+    case KeyType.Singleton:
+      return { keyType: KeyType.Singleton, value: key } as EntityId<S, K>;
+
+    case KeyType.UUID:
+      return { keyType: KeyType.UUID, value: key };
+
+    default:
+      throw new Error(
+        `Unimplemented keyFor for ${
+          registration.key
+        } key type (${JSON.stringify(registration)})`
+      );
+  }
+}
+
+export class TypeIndexImpl<S extends DatabaseSchema, K extends EntityName<S>> {
+  readonly record: TypeIndexRecord<S, K> = new TypeIndexRecord();
 
   constructor(readonly type: K, readonly registration: Registration<S, K>) {}
 
-  newId(): EntityId<S, K> {
-    let registration = this.registration;
-
-    switch (registration.key) {
-      case KeyType.Singleton:
-        return { keyType: KeyType.Singleton, value: this.type } as EntityId<
-          S,
-          K
-        >;
-
-      case KeyType.UUID:
-        return { keyType: KeyType.UUID, value: uuid.default() };
-
-      default:
-        throw new Error(
-          `Unimplemented keyFor for ${
-            registration.key
-          } key type (${JSON.stringify(registration)})`
-        );
-    }
-  }
-
-  idFor(key: string): EntityId<S, K> {
-    let { registration } = this;
-
-    switch (registration.key) {
-      case KeyType.Singleton:
-        return { keyType: KeyType.Singleton, value: key } as EntityId<S, K>;
-
-      case KeyType.UUID:
-        return { keyType: KeyType.UUID, value: key };
-
-      default:
-        throw new Error(
-          `Unimplemented keyFor for ${
-            registration.key
-          } key type (${JSON.stringify(registration)})`
-        );
-    }
+  get allTag(): TagWrapper<DirtyableTag> {
+    return this.record.allTag;
   }
 
   insert(key: EntityReference<K>, data: Properties<S, K>): void {
-    let { properties, entityTags } = this;
-
-    properties[key.id.value] = data;
-    entityTags[key.id.value] = new EntityTags(data);
-
-    this.allTag.inner.dirty();
+    this.record.insert(key, data);
   }
 
   delete(key: EntityReference<K>): void {
-    let { properties, entityTags } = this;
+    let { entities } = this.record;
     let id = key.id.value;
 
-    delete properties[id];
-    entityTags[id]!.dirty();
-    delete entityTags[id];
+    entities[id]!.dirtyAll();
+    delete entities[id];
 
-    this.allTag.inner.dirty();
+    this.record.allTag.inner.dirty();
   }
 
   patch(key: EntityReference<K>, updates: Partial<Properties<S, K>>): void {
-    let { properties } = this;
-
-    let existing = properties[key.id.value];
-    let updated = { ...existing, ...updates };
-
-    properties[key.id.value] = updated;
-
-    let tags = this.entityTags[key.id.value]!;
-
-    for (let key of keys(updates)) {
-      if (!tags.has(key)) {
-        throw new Error(
-          `Unexpected property '${key}' passed to patch that wasn't present in insert`
-        );
-      }
-
-      tags.get(key).inner.dirty();
-    }
-
-    let entity = this.entityTags[key.id.value]!;
-
-    entity.dirty();
-    this.allTag.inner.dirty();
+    this.record.patchProperties(key.id.value, updates);
   }
 
   all(): Array<EntityReference<K>> {
     let out: Array<EntityReference<K>> = [];
 
-    Object.keys(this.properties).forEach(key => {
-      out.push({ type: this.type, id: this.idFor(key) });
+    this.record.eachEntity((_item, key) => {
+      out.push({ type: this.type, id: idFor(this.registration, key) });
     });
 
-    consume(this.allTag);
+    consume(this.record.allTag);
 
     return out;
   }
 
-  get(id: string): Option<Properties<SchemaForEntityName<K>, K>> {
-    let { properties } = this;
+  get(key: EntityReference<K>): Option<Properties<SchemaForEntityName<K>, K>> {
+    let id = key.id.value;
 
-    if (properties[id] === undefined) {
+    let properties = this.record.getProperties(key.id.value);
+
+    if (properties === undefined) {
       return null;
     } else {
       this.consume(id);
-      return properties[id]!;
+      return properties;
     }
   }
 
   private consume(id: string, key?: keyof PropertiesFor<K>): void {
-    if (id in this.entityTags) {
-      this.entityTags[id]!.consume();
+    if (id in this.record.entities) {
+      this.record.entities[id]!.consume();
     }
 
     if (!key) return;
 
-    if (id in this.entityTags) {
-      let tags = this.entityTags[id]!;
+    if (id in this.record.entities) {
+      let entity = this.record.entities[id]!;
 
-      if (tags.has(key)) {
-        tags.consumeProperty(key);
-      }
+      entity.consumeProperty(key);
     }
   }
 
   entityTag(id: EntityReference<K>): Tag {
-    let tags = this.entityTags[id.id.value]!;
+    let tags = this.record.entities[id.id.value]!;
 
     return tags.entity();
   }
@@ -256,35 +183,25 @@ class TypeIndex<S extends DatabaseSchema, K extends EntityName<S>> {
     id: EntityReference<K>,
     key: keyof Properties<SchemaForEntityName<K>, K>
   ): Tag {
-    let tags = this.entityTags[id.id.value]!;
+    let tags = this.record.entities[id.id.value]!;
 
-    return tags.get(key);
+    return tags.getPropertyTag(key);
   }
 
   derivedTag<
     K extends EntityName<DatabaseSchema>,
     P extends keyof Derived<SchemaForEntityName<K>, K>
   >(id: EntityReference<K>, key: P): TagWrapper<UpdatableDirtyableTag> {
-    let tags = this.derivedTags[id.id.value]!;
+    let tags = this.record.entities[id.id.value]!;
 
-    if (!tags) {
-      tags = {};
-    }
-
-    let tag: TagWrapper<UpdatableDirtyableTag> | undefined = tags[key];
-
-    if (!tag) {
-      tag = tags[key] = UpdatableDirtyableTag.create();
-    }
-
-    return tag;
+    return tags.getDerivedTag(key);
   }
 }
 
 class Index<S extends DatabaseSchema> {
   readonly registrations: { [K in EntityName<S>]?: Registration<S, K> } = {};
   readonly queryTags: Dict<QueryTags<S>> = {};
-  readonly indexByType: { [K in EntityName<S>]?: TypeIndex<S, K> } = {};
+  readonly indexByType: { [K in EntityName<S>]?: TypeIndexImpl<S, K> } = {};
 
   constructor(readonly queries?: QueryRegistrations<S>) {}
 
@@ -339,11 +256,11 @@ class Index<S extends DatabaseSchema> {
     index.insert(key, data);
   }
 
-  private indexFor<K extends EntityName<S>>(type: K): TypeIndex<S, K> {
+  private indexFor<K extends EntityName<S>>(type: K): TypeIndexImpl<S, K> {
     let index = this.indexByType[type];
 
     if (!index) {
-      index = new TypeIndex<S, K>(type, this.registrations[type]!);
+      index = new TypeIndexImpl<S, K>(type, this.registrations[type]!);
       this.indexByType[type] = index;
     }
 
@@ -371,7 +288,9 @@ class Index<S extends DatabaseSchema> {
     let index = this.indexByType[key.type];
 
     if (!index) {
-      throw new Error(`unexpected get of non-existent entity type ${key.type}`);
+      throw new Error(
+        `unexpected delete of non-existent entity type ${key.type}`
+      );
     }
 
     index.delete(key);
@@ -389,14 +308,16 @@ class Index<S extends DatabaseSchema> {
     return index.allTag;
   }
 
-  get<K extends EntityName<S>>(type: K, id: string): Option<Properties<S, K>> {
-    let index = this.indexByType[type];
+  get<K extends EntityName<S>>(
+    key: EntityReference<K>
+  ): Option<Properties<S, K>> {
+    let index = this.indexByType[key.type];
 
     if (!index) {
-      throw new Error(`unexpected get of non-existent entity type ${type}`);
+      throw new Error(`unexpected get of non-existent entity type ${key.type}`);
     }
 
-    return index.get(id);
+    return index.get(key);
   }
 
   entityTag<K extends EntityName<S>>(id: EntityReference<K>): Tag {
@@ -465,7 +386,55 @@ class Index<S extends DatabaseSchema> {
   }
 }
 
-export class Database<S extends DatabaseSchema> {
+export interface Database<S extends DatabaseSchema> {
+  all<K extends EntityName<S>>(kind: K): Array<EntityReference<K>>;
+
+  insert<K extends keyof S["entities"] & EntityName<S>>(
+    qualifiedId: EntityReference<K>,
+    entity: Properties<S, K>
+  ): EntityReference<K>;
+  insert<K extends EntityName<S>>(
+    type: K,
+    entity: Properties<S, K>
+  ): EntityReference<K>;
+
+  delete<K extends EntityName<S>>(qualifiedId: EntityReference<K>): void;
+
+  patch<K extends EntityName<S>>(
+    qualifiedId: EntityReference<K>,
+    entity: Partial<Properties<S, K>>
+  ): void;
+
+  checkout<K extends EntityName<S>>(
+    qualifiedId: EntityReference<K>
+  ): Properties<S, K>;
+
+  query<K extends EntityName<S>, D extends keyof Derived<S, K>>(
+    id: EntityReference<K>,
+    name: D
+  ): VersionedPathReference<DerivedReturn<K, D>>;
+
+  dbQuery<N extends keyof QueriesFor<S>>(
+    name: N,
+    ...args: QueryArgs<S, N>
+  ): VersionedPathReference<QueryReturn<S, N>>;
+
+  entityTag(id: EntityReference<EntityName<S>>): Tag;
+
+  propertyTag<K extends EntityName<S>, P extends keyof Properties<S, K>>(
+    id: EntityReference<K>,
+    key: P
+  ): Tag;
+
+  derivedTag<K extends EntityName<S>, P extends keyof Derived<S, K>>(
+    id: EntityReference<K>,
+    key: P
+  ): Tag;
+
+  allTag<K extends EntityName<S>>(type: K): Tag;
+}
+
+export class DatabaseImpl<S extends DatabaseSchema> implements Database<S> {
   constructor(queries?: QueryRegistrations<S>) {
     INDEX.init(this, new Index(queries));
   }
@@ -523,23 +492,7 @@ export class Database<S extends DatabaseSchema> {
   checkout<K extends EntityName<S>>(
     qualifiedId: EntityReference<K>
   ): Properties<S, K> {
-    let data = INDEX.get(this).get(qualifiedId.type, qualifiedId.id.value);
-
-    if (data === null) {
-      throw new Error(
-        `Unexpected missing data for ${qualifiedId.type} id=${
-          qualifiedId.id.value
-        }`
-      );
-    } else {
-      return data;
-    }
-  }
-
-  peek<K extends EntityName<S>>(
-    qualifiedId: EntityReference<K>
-  ): Option<Properties<S, K>> {
-    let data = INDEX.get(this).get(qualifiedId.type, qualifiedId.id.value);
+    let data = INDEX.get(this).get(qualifiedId);
 
     if (data === null) {
       throw new Error(
@@ -559,10 +512,10 @@ export class Database<S extends DatabaseSchema> {
     let index = INDEX.get(this);
     let derived: (
       data: Properties<SchemaForEntityName<K>, K>,
-      database: Database<S>
+      database: DatabaseImpl<S>
     ) => DerivedReturn<K, D> = index.derived(id, name);
 
-    return compute(() => derived(this.checkout(id), this as Database<S>));
+    return compute(() => derived(this.checkout(id), this as DatabaseImpl<S>));
   }
 
   dbQuery<N extends keyof QueriesFor<S>>(
@@ -631,18 +584,18 @@ export function mapObject<D extends object, O>(
 
 export type DerivedArgs<K extends EntityName<DatabaseSchema>> = [
   Properties<SchemaForEntityName<K>, K>,
-  Database<SchemaForEntityName<K>>
+  DatabaseImpl<SchemaForEntityName<K>>
 ];
 
 export type DerivedFunction<
   S extends DatabaseSchema,
   K extends EntityName<S>,
   D extends keyof Derived<S, K>
-> = (data: Properties<S, K>, database: Database<S>) => DerivedReturn<K, D>;
+> = (data: Properties<S, K>, database: DatabaseImpl<S>) => DerivedReturn<K, D>;
 
 export type QueryRegistrations<S extends DatabaseSchema> = {
   [K in keyof S["queries"]]: (
-    database: Database<S>,
+    database: DatabaseImpl<S>,
     ...args: QueryArgs<S, K>
   ) => QueryReturn<S, K>
 };
