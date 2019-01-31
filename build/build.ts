@@ -49,7 +49,9 @@ function watchMain() {
   // a set of root files.
   const host = ts.createWatchCompilerHost(
     configPath,
-    {},
+    {
+      noEmit: false
+    },
     ts.sys,
     createProgram,
     reportDiagnostic,
@@ -111,7 +113,7 @@ function watchMain() {
       }
 
       trace(`Didn't find ${packageDist}, creating a symlink to ${repoDist}`);
-      fs.symlinkSync(repoDist, packageDist, "junction");
+      // fs.symlinkSync(repoDist, packageDist, "junction");
       return;
     }
 
@@ -122,7 +124,7 @@ function watchMain() {
     console.warn(`Found ${packageDist}, but it wasn't a symlink. Deleting it.`);
     rimraf.sync(packageDist);
     trace(`Creating a symlink to ${repoDist}`);
-    fs.symlinkSync(repoDist, packageDist, "junction");
+    // fs.symlinkSync(repoDist, packageDist, "junction");
   };
 
   // `createWatchProgram` creates an initial program, watches files, and updates

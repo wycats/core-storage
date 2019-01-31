@@ -45,7 +45,9 @@ function watchMain() {
     var createProgram = ts.createSemanticDiagnosticsBuilderProgram;
     // Note that there is another overload for `createWatchCompilerHost` that takes
     // a set of root files.
-    var host = ts.createWatchCompilerHost(configPath, {}, ts.sys, createProgram, reportDiagnostic, reportWatchStatusChanged);
+    var host = ts.createWatchCompilerHost(configPath, {
+        noEmit: false
+    }, ts.sys, createProgram, reportDiagnostic, reportWatchStatusChanged);
     // You can technically override any given hook on the host, though you probably
     // don't need to.
     // Note that we're assuming `origCreateProgram` and `origPostProgramCreate`

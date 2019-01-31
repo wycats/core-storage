@@ -1,7 +1,13 @@
 import { module, test } from "./support";
-import { Database, Id, ModelSchemas, Key, EntityReference } from "core-storage";
+import {
+  Database,
+  EntityReference,
+  DatabaseSchema,
+  Id,
+  KeyType
+} from "core-storage";
 
-interface SimpleSchema extends ModelSchemas {
+interface SimpleSchema extends DatabaseSchema {
   entities: {
     person: SimplePerson;
   };
@@ -24,7 +30,7 @@ export class SimpleSingletonTests {
 
   constructor() {
     this.store.register("person", {
-      key: Key.Singleton,
+      key: KeyType.Singleton,
       derived: {
         length(person) {
           return person.name.length;
@@ -37,10 +43,10 @@ export class SimpleSingletonTests {
     let { store } = this;
 
     let tomId = store.insert("person", { name: "Tom Dale" });
-    let tom = store.get(tomId);
+    let tom = store.checkout(tomId);
     assert.equal(tom.name, "Tom Dale");
 
-    let derived = store.derived(tomId, "length");
+    let derived = store.query(tomId, "length");
     assert.equal(derived.value(), "Tom Dale".length);
   }
 
@@ -51,8 +57,8 @@ export class SimpleSingletonTests {
     let tomTag = store.entityTag(tomId);
     let tomNameTag = store.propertyTag(tomId, "name");
 
-    let tom = store.get(tomId);
-    let length = store.derived(tomId, "length");
+    let tom = store.checkout(tomId);
+    let length = store.query(tomId, "length");
 
     assert.equal(tom.name, "Tom Dale");
     assert.equal(length.value(), "Tom Dale".length);
@@ -67,7 +73,7 @@ export class SimpleSingletonTests {
 
     assert.equal(tom.name, "Tom Dale", "The old checkout doesn't change");
     assert.equal(
-      store.get(tomId).name,
+      store.checkout(tomId).name,
       "Thomas Dale",
       "New checkouts see the updates"
     );
@@ -80,7 +86,7 @@ export class SimpleSingletonTests {
 
     let tomId = store.insert("person", { name: "Tom Dale" });
 
-    let length = store.derived(tomId, "length");
+    let length = store.query(tomId, "length");
 
     let lengthTag = length.tag;
     assert.equal(
@@ -105,7 +111,7 @@ export class SimpleSingletonTests {
   }
 }
 
-interface AtomicSchema extends ModelSchemas {
+interface AtomicSchema extends DatabaseSchema {
   entities: {
     person: AtomicPerson;
     article: AtomicArticle;
@@ -126,7 +132,7 @@ interface AtomicArticle {
   id: Id;
   properties: {
     title: string;
-    author: EntityReference<AtomicSchema, "person">;
+    author: EntityReference<"person">;
     body: string;
     tags: string[];
   };
@@ -140,20 +146,20 @@ interface AtomicArticle {
 @module
 export class AtomicSingletonTests {
   private store = new Database<AtomicSchema>();
-  private personId: EntityReference<AtomicSchema, "person">;
-  private articleId: EntityReference<AtomicSchema, "article">;
+  private personId: EntityReference<"person">;
+  private articleId: EntityReference<"article">;
 
   constructor() {
     this.store.register("person", {
-      key: Key.Singleton
+      key: KeyType.Singleton
     });
 
     this.store.register("article", {
-      key: Key.Singleton,
+      key: KeyType.Singleton,
 
       derived: {
         byline(article, database) {
-          let author = database.get(article.author);
+          let author = database.checkout(article.author);
           return `${author.name} (${author.association})`;
         }
       }
@@ -175,11 +181,11 @@ export class AtomicSingletonTests {
   @test "derived state through associations works"(assert: Assert) {
     let { store } = this;
 
-    let yehuda = store.get(this.personId);
+    let yehuda = store.checkout(this.personId);
     assert.equal(yehuda.name, "Yehuda Katz");
     assert.equal(yehuda.association, "Tilde");
 
-    let byline = store.derived(this.articleId, "byline");
+    let byline = store.query(this.articleId, "byline");
 
     assert.equal(byline.value(), `Yehuda Katz (Tilde)`);
   }
@@ -189,11 +195,11 @@ export class AtomicSingletonTests {
   ) {
     let { store } = this;
 
-    let yehuda = store.get(this.personId);
+    let yehuda = store.checkout(this.personId);
     assert.equal(yehuda.name, "Yehuda Katz");
     assert.equal(yehuda.association, "Tilde");
 
-    let byline = store.derived(this.articleId, "byline");
+    let byline = store.query(this.articleId, "byline");
 
     assert.equal(byline.value(), `Yehuda Katz (Tilde)`);
 

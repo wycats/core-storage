@@ -11,190 +11,332 @@ The goal of core-storage is to expose a primitive storage API that satisfies the
 1. Storage is persistent. Once a piece of storage is created, it remains in memory until it is deleted.
 2. Lifetime management is automatic. If you want your storage to automatically be deleted once the component it was created for is destroyed, you can express that directly.
 
-## Table
+## Entity
 
-The basic primitive of core-storage is the storage table. A storage table can be keyed (if there are multiple rows in the table, indexed by key) or singleton (if there is only one instance of the table).
-
-> A singleton table can be thought of as a keyed table whose only instance has the key `null`.
-
-### The Store
-
-A singleton table:
+An entity is a group of fields that contain only primitive data.
 
 ```ts
-let store = new Store();
+let database = new Database();
 
-store.table("person", {
-  key: Key.Singleton,
-  data: ["name"],
+database.register("person", {
+  key: Key.UUID
+});
 
-  computed: {
-    length(person: Row<Person>) {
-      return person.name.length;
+// `{ name: "Godfrey Chan" }` is inserted into the database as a `person`, and
+// a key is returned that can be used to index into the database. Because we
+// said that `person`'s key is a UUID, core-storage creates a UUID for us.
+let godfreyKey = database.insert("person", { name: "Godfrey Chan" });
+
+// Fetch the object associated with the ID.
+let godfrey = database.checkout(godfreyKey);
+
+assert(godfrey.name === "Godfrey Chan"); // the data was returned
+```
+
+An entity is updated atomically. Any data that you got through `checkout` is a
+snapshot of the data.
+
+```ts
+let godfrey = database.checkout(godfreyKey);
+
+database.patch(godfreyKey, { name: "Godfrey 'chancancode' Chan" });
+
+// the original checkout hasn't changed
+assert(godfrey.name, "Godfrey Chan");
+
+// but you can get a new checkout
+let updatedGodfrey = database.checkout(godfreyKey);
+
+// and the new checkout sees the update
+assert(godfrey.name, "Godfrey 'chancancode' Chan");
+```
+
+## Freshness
+
+You can check whether a particular checkout is fresh by asking the database for
+the current revision for a particular entity.
+
+```ts
+let godfrey = database.checkout(godfreyKey);
+
+// get the most recent revision of godfreyKey
+let head = database.revision(godfreyKey);
+
+// the most recent revision is still up to date
+assert(database.validate(godfreyKey, head) === true);
+
+// update godfrey in the database
+database.patch(godfreyKey, { name: "Godfrey 'chancancode' Chan" });
+
+// the earlier revision is no longer up to date
+assert(database.validate(godfreyKey, head) === false);
+
+// and a new checkout will get the newer data
+assert(database.checkout(godfreyKey).name === "Godfrey 'chancancode' Chan");
+```
+
+> Under the hood, core-storage uses Glimmer's tag interface. If you're familiar
+> with that interface, or if you need a tag for some reason, you can ask for
+> one via `database.entityTag(godfreyKey)` instead of using the revision and
+> validate methods on the store. The revision and validate methods use tags
+> under the hood, so the two uses are equivalent.
+
+## Queries
+
+While working with atomic data is nice, you also want the ability to do
+computations against the data in the database.
+
+Because the data in the database is just raw JavaScript values, you can
+write normal functions to compute things.
+
+```ts
+let database = new Database();
+
+database.register("person", {
+  key: Key.UUID
+});
+
+let godfreyKey = database.insert("person", { name: "Godfrey Chan" });
+
+function upcaseName(database, personKey) {
+  let person = database.checkout(personKey);
+
+  return person.name.toUpperCase();
+}
+```
+
+This works as intended, but you have no way to know whether `upcaseName` for
+a given person is still fresh without re-running the function.
+
+To make it possible to answer that question efficiently, you can turn the
+function into a **query**.
+
+```ts
+let database = new Database({
+  queries: {
+    upcase(database, personKey) {
+      let person = database.checkout(personKey);
+      return person.name.toUpperCase();
     }
   }
 });
 
-function main() {
-  let store = new Store();
+database.register("person", {
+  key: Key.UUID
+});
 
-  store.set('person', {
-    name: "Tom Dale"
-  });
+let godfreyKey = database.insert("person", { name: "Godfrey Chan" });
 
-  let person = store.get('person');
+// get an `upcase` query for godfrey
+let godfreyCaps = database.query("upcase", godfreyKey);
 
-  console.log("Initially, the length is", person.length);
+// the value of the query is the result of executing the query against the
+// parameters to the query.
+assert(godfreyCaps.value() === "GODFREY CHAN");
 
-  // this is representative of what Ember would do in this situation, but it's
-  // not something you would likely do in your own code.
-  let tag = store.tagFor(person, 'name');
-  let revision = tag.value();
+// to check whether the last value we computed for godfreyCaps is still fresh
+// pull off its tag.
+let godfreyCapsTag = godfreyCaps.tag;
 
-  person.name = "Hello world");
+// call `value()` on the tag to get the current revision of the computation;
+// this is the maximum of all of the revisions of the entities the
+// computation used.
+let head = godfreyCapsTag.value();
 
-  tag.validate(revision); // false
+// update the entity
+database.patch(godfreyKey, { name: "Godfrey 'chancancode' Chan" });
 
-  console.log("Now, the length is", person.length);
-}
+// since the godfrey entity was used in the last computation of this query,
+// and since it was updated, the tag reports that the value is stale.
+assert(godfreyCapsTag.validate(revision) === false);
+
+assert(godfreyCaps.value() === "GODFREY 'CHANCANCODE' CHAN");
 ```
 
-A keyed table:
+## Namespaced Queries
+
+While it's possible to register all computed values on the database, if a
+query is operating on a particular entity type, it can be convenient to
+namespace them together with the entity.
+
+This is useful both for namespacing purposes, and to make it easy to defer
+loading an entity's queries until the entity itself is needed.
 
 ```ts
-let store = new Store();
+let database = new Database();
 
-store.table("person", {
+database.register("person", {
   key: Key.UUID,
-  data: ["name"],
-
-  computed: {
-    length(person: Row<Person>) {
-      return person.name.length;
-    }
-  },
 
   queries: {
-    dales(people: Table<Person>) {
-      return people.all().filter(p => /Dale$/.test(p));
+    upcase(database, personKey) {
+      let person = database.checkout(personKey);
+      return person.name.toUpperCase();
     }
   }
 });
 
-function main() {
-  let store = new Store();
+let godfreyKey = database.insert("person", { name: "Godfrey Chan" });
 
-  let id = store.set("person", {
-    data: {
-      name: "Tom Dale"
+// the query is now namespaced together with the entity. Otherwise, nothing
+// else changes.
+let godfreyCaps = database.query("person", "upcase", godfreyKey);
+
+assert(godfreyCaps.value() === "GODFREY CHAN");
+
+let godfreyCapsTag = godfreyCaps.tag;
+let head = godfreyCapsTag.value();
+
+database.patch(godfreyKey, { name: "Godfrey 'chancancode' Chan" });
+
+assert(godfreyCapsTag.validate(revision) === false);
+assert(godfreyCaps.value() === "GODFREY 'CHANCANCODE' CHAN");
+```
+
+## Whole Table Queries
+
+So far, our queries have always been operating on a single entity.
+
+What if we want to write a query that filters "person" based on whether they're
+contributors to our project. Let's first do it by hand.
+
+```ts
+let database = new Database();
+
+database.register("person", {
+  key: Key.UUID
+});
+
+database.insert("person", { name: "Godfrey Chan", contributor: true });
+database.insert("person", { name: "Tom Dale", contributor: true });
+database.insert("person", { name: "Dan Abramov", contributor: false });
+database.insert("person", { name: "Igor Minar", contributor: false });
+database.insert("person", { name: "Yehuda Katz", contributor: true });
+
+function contributors(database) {
+  return database.all("person").filter(key => database.get(key).contributor);
+}
+
+let actual = contributors(database).map(key => database.get(key).name);
+let expected = ["Godfrey Chan", "Tom Dale", "Yehuda Katz"];
+
+assert(JSON.stringify(actual) === JSON.stringify(expected));
+```
+
+Just like before, we can register this query and get freshness information:
+
+```ts
+let database = new Database({
+  queries: {
+    contributors(database) {
+      return database
+        .all("person")
+        .filter(key => database.get(key).contributor);
     }
-  });
+  }
+});
 
-  let tom = store.get("person", id);
-  let tomTag = store.dataTag(tom, "name");
-  let tomRevision = tomTag.value();
+database.register("person", {
+  key: Key.UUID
+});
 
-  console.log("Initially, the length is", person.length);
+database.insert("person", { name: "Godfrey Chan", contributor: true });
+database.insert("person", { name: "Tom Dale", contributor: true });
+database.insert("person", { name: "Dan Abramov", contributor: false });
+database.insert("person", { name: "Igor Minar", contributor: false });
 
-  let people = store.queries("person");
-  let dales = people.dales();
-  let peopleTag = store.queriesTag("person", "dales");
-  let peopleRevision = peopleTag.value();
+let yehuda = database.insert("person", {
+  name: "Yehuda Katz",
+  contributor: true
+});
 
-  console.log("Initially, Dales has", people);
+let contributors = database.query("contributors");
 
-  store.patch(tom, {
-    name: "Tom Dall"
-  });
+equiv(contributors.value(), ["Godfrey Chan", "Tom Dale", "Yehuda Katz"]);
 
-  assert(tomTag.validate(tomRevision) === false);
-  assert(peopleTag.valiate(peopleRevision) === false);
+let contributorsTag = contributors.tag;
+let head = contributorsTag.value();
 
-  assert.deepEqual(people.dales(), []);
-}
+database.insert("person", { name: "Melanie Sumner", contributor: true });
+
+assert(contributorsTag.validate(head) === false);
+equiv(contributors.value(), [
+  "Godfrey Chan",
+  "Tom Dale",
+  "Yehuda Katz",
+  "Melanie Sumner"
+]);
+
+head = contributorsTag.value();
+
+database.patch(yehuda, { contributor: false }); // :scream:
+
+assert(contributorsTag.validate(head) === false);
+equiv(contributors.value(), ["Godfrey Chan", "Tom Dale", "Melanie Sumner"]);
 ```
 
-### Singleton Table
+## Modelling Relationships
+
+Let's say we have the canonical "hello world" of relationships: articles that
+have many comments.
+
+Let's model that so that each comment holds a reference to an article.
 
 ```ts
-import { storage, cell, query, Store } from "core-storage";
+let database = new Database();
 
-@storage
-class Person {
-  @cell name: string = "";
+database.register("article", {
+  key: Key.UUID,
 
-  @query
-  length() {
-    return this.name.length;
+  queries: {
+    comments(database, articleKey) {
+      return database
+        .all("comment")
+        .map(comment => database.checkout(comment))
+        .filter(comment => comment.article === articleKey);
+    }
   }
-}
+});
 
-function main() {
-  let store = new Store();
+database.register("comment", {
+  key: Key.UUID
+});
 
-  let person = store.register(new Person());
+let article1 = database.insert("article", {
+  title: "Hello world",
+  body: "Hi there!"
+});
 
-  console.log("Initially, the length is", person.length);
+database.insert("comment", {
+  body: "Right back atcha",
+  article: article1
+});
 
-  // this is representative of what Ember would do in this situation, but it's
-  // not something you would likely do in your own code.
-  let tag = tagFor(person, 'name');
-  let revision = tag.value();
+database.insert("comment", {
+  body: "Hey I wanted to be *first*",
+  article: article1
+});
 
-  person.name = "Hello world");
+let comments = database.query("article", "comments", article1);
 
-  tag.validate(revision); // false
+let commentsTag = comments.tag;
+let head = commentsTag.value();
 
-  console.log("Now, the length is", person.length);
-}
-```
+equiv(comments, [
+  { body: "Right back atcha", article: article1 },
+  { body: "Hey I wanted to be *first*", article: article1 }
+]);
 
-### Keyed Table
+database.insert("comment", {
+  body: "Stop fighting you two!",
+  article: article1
+});
 
-```ts
-import { storage, cell, key, table, query } from "core-storage";
+assert(commentsTag.validate(head) === false);
 
-@storage
-class Person {
-  @key id: string;
-  @cell name: string;
-
-  constructor(id: string, name: string) {
-    this.id = id;
-    this.name = name;
-  }
-
-  @query
-  length() {
-    return this.name.length;
-  }
-}
-
-@table(Person)
-class People {
-  @query
-  dales(people: Table<Person>) {
-    return people.all().filter(p => /Dale$/.test(p.name));
-  }
-}
-
-function main() {
-  let store = new Store();
-
-  let person = store.register(new Person(1, "Tom Dale"));
-  let people = store.query(People);
-
-  console.log("Initially, the Dales is", people.dales());
-
-  // this is representative of what Ember would do in this situation, but it's
-  // not something you would likely do in your own code.
-  let tag = tagFor(person, 'name');
-  let revision = tag.value();
-
-  person.name = "Hello world");
-
-  tag.validate(revision); // false
-
-  console.log("Now, the length is", person.length);
-}
+equiv(comments.value(), [
+  { body: "Right back atcha", article: article1 },
+  { body: "Hey I wanted to be *first*", article: article1 }.
+  { body: "Stop fighting you two!", article: article1 }
+]);
 ```

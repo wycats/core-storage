@@ -11,6 +11,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "noEmit": true,
 
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -18,7 +19,12 @@
     "noFallthroughCasesInSwitch": true,
 
     "moduleResolution": "node",
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "paths": {
+      "core-storage": ["packages/core-storage/index.ts"]
+    }
   },
   "include": ["packages/core-storage/**/*.ts", "tests/**/*.ts"],
   "exclude": ["./node_modules", "./packages/core-storage/dist", "./dist"],
